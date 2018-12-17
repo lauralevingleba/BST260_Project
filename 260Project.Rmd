@@ -183,7 +183,7 @@ suicidedots2 <- bind_cols(suicidedots,scluster) %>% filter(scluster > 0)
 cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7","#000000")
 
 ggplot()+ geom_polygon(data=boston_fortify, aes(x=long, y=lat, group=group, fill=NA),color ="grey", fill=NA,size=0.5)+ geom_point(data=heroindots2,aes(x=Long,y=Lat,color=as.factor(hcluster)),pch=18)+
-scale_color_manual(values=c(cbPalette,cbPalette),guide=FALSE)+theme_classic()+xlab("Longitude")+ylab("Latitude")+ggtitle("DBSCAN Clusters of Suicide/Attempt Incidents")                                         
+scale_color_manual(values=c(cbPalette,cbPalette),guide=FALSE)+theme_classic()+xlab("Longitude")+ylab("Latitude")+ggtitle("DBSCAN Clusters of Heroin Assist Incidents")                                         
 
 ggplot()+ geom_polygon(data=boston_fortify, aes(x=long, y=lat, group=group, fill=NA),color ="grey",fill=NA,size=0.5)+
 geom_point(data=suicidedots2,aes(x=Long,y=Lat,color=as.factor(scluster)),pch=18)+
@@ -219,7 +219,7 @@ geom_point(data=suicidedots2,aes(x=Long,y=Lat),color="#DA0404",cex=.8)+
 
 ```
 
-In fact, clusters seem to be in areas with more green space, not less. We can see clusters of both suicide and heroin-related incidents near Boston Common downtown and near Joa Moakley Park in South Boston. It's plausible that drug use may occur more frequently in public spaces such as parks, but its hard to draw conclusions without examining other factors. I examined three other features of the urban environment that I thought may play a role in the observed clusters: , methadone clinics and homeless shelters. 
+In fact, clusters seem to be in areas with more green space, not less. We can see clusters of both suicide and heroin-related incidents near Boston Common downtown and near Joe Moakley Park in South Boston. It's plausible that drug use may occur more frequently in public spaces such as parks, but its hard to draw conclusions without examining other factors. I examined three other features of the urban environment that I thought may play a role in the observed clusters: , methadone clinics and homeless shelters. 
 
 *_MBTA train stations_: I hypothesized that T stations tend to be located near easily accessible social hubs in the city where a lot of people tend to congregate, so they may be useful as proxies for high risk areas.   
 
