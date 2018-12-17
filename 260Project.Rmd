@@ -45,7 +45,7 @@ and additionally
 
 ####Related Work
 
-My background is in clinical psychology research, where the main approach we took to addressing this problem was to try to find "risk factors" such as genes, brain structures, psychiatric symptoms or history of traumatic events which could predict things like suicidal ideation or substance use disorder at the level of the individual. However, any individual overdose or suicide is caused by so many complicated, interacting factors that it's very difficult to assess risk for a specific person. In fact, a 2016 meta-analysis of research on risk factors for suicidal thoughts and behaviors published in *Psychological Bulletin* went so far as to claim that "predictive ability has not improved across 50 years of research." But despite this pessemistic conclusion, the study also posits that the key towards progress lies in leveraging technological advances in order to overcome the methodological limitations of existing research. 
+My background is in clinical psychology research, where the main approach we took to addressing this problem was to try to find "risk factors" such as genes, brain structures, psychiatric symptoms or history of traumatic events which could predict things like suicidal ideation or substance use disorder at the level of the individual. However, any individual overdose or suicide is caused by so many complicated, interacting factors that it's very difficult to assess risk for a specific person. In fact, a 2016 meta-analysis of research on risk factors for suicidal thoughts and behaviors published in *Psychological Bulletin* went so far as to claim that "predictive ability has not improved across 50 years of research." But despite this pessimistic conclusion, the study also posits that the key towards progress lies in leveraging technological advances in order to overcome the methodological limitations of existing research. 
 
 ####Initial Questions
 
@@ -87,7 +87,7 @@ suicide %>% mutate(MONTH=sprintf("%02d",MONTH))%>%unite(YM,YEAR,MONTH,sep="_") %
 
 There seems to be a lot of month-to-month variability without a clear upward or downward trend. 
 
-Next, I collapsed the data accross seasons as I hypothesized that weather may play a role:
+Next, I collapsed the data across seasons as I hypothesized that weather may play a role:
 
 ```{r fig.show='hold',fig.width=4, fig.height=4}
 heroin %>% mutate(Season=cut(MONTH,breaks=4,labels=c("Winter","Spring","Summer","Fall"))) %>% group_by(Season) %>% tally %>% ggplot(aes(x=Season,y=n))+
@@ -125,13 +125,13 @@ suicide %>% group_by(HOUR,DAY_OF_WEEK) %>% tally %>% ggplot(aes(x=HOUR,y=DAY_OF_
 
 ```
 
-Heroin sick assist incidents seem to occur most often in the evening from around 4pm - 8pm, with higher rates on weedays than weekends. Rates are lowest in the early morning hours from 2am - 6am. Suicides/attempts show similar patterns, although there seems to be more variability in the data, possibly due to the lower overall rates leading to fewer data points.
+Heroin sick assist incidents seem to occur most often in the evening from around 4pm - 8pm, with higher rates on weekdays than weekends. Rates are lowest in the early morning hours from 2am - 6am. Suicides/attempts show similar patterns, although there seems to be more variability in the data, possibly due to the lower overall rates leading to fewer data points.
 
 #####Spatial Analysis
 
-In addition to when incidents were likely to occur, I was interested in where. As the crime dataset contains latitude and longitudes, I was able to use GIS data from the Analyze Boston data hub to see where in Boston incidents were occuring.
+In addition to when incidents were likely to occur, I was interested in where. As the crime dataset contains latitude and longitudes, I was able to use GIS data from the Analyze Boston data hub to see where in Boston incidents were occurring.
 
-The first step in this analysis was formating the shape files to use with ggplot. I had no prior experience with GIS data, so it took me a while to figure out how to work with spatial objects in R.
+The first step in this analysis was formatting the shape files to use with ggplot. I had no prior experience with GIS data, so it took me a while to figure out how to work with spatial objects in R.
 
 ```{r }
 #get map of Boston with Zip codes
@@ -162,7 +162,7 @@ As expected, the locations aren't evenly distributed in space and some zip codes
 
 After reading about some potential clustering methods, I decided to use DBSCAN (Density-based spatial clustering of applications with noise). This algorithm detects groups of points that are close to each other while marking the points in low density areas as noise points, which sounded promising for my purpose. 
 
-The algorithm has two parameters that can be adjusted: the ***eps***, which represents the minimum distance between two points required for them to be considered neighbors and the ***minPts***, which represents the minimum number of points to form a high-density region. I experimented a bit with these parameters to find values that resulted in custer sizes that were useful for further analysis (for example, I did not want 200 tiny clusters or 2 huge clusters).  
+The algorithm has two parameters that can be adjusted: the ***eps***, which represents the minimum distance between two points required for them to be considered neighbors and the ***minPts***, which represents the minimum number of points to form a high-density region. I experimented a bit with these parameters to find values that resulted in cluster sizes that were useful for further analysis (for example, I did not want 200 tiny clusters or 2 huge clusters).  
 
 *Side note: when clustering geospatial points, you're actually supposed to use a distance metric that takes account of the curvature of the earth, such as haversine distances, but since Boston is very small compared to the size of the entire earth, I approximated the world as flat for this project.
 
@@ -221,13 +221,13 @@ geom_point(data=suicidedots2,aes(x=Long,y=Lat),color="#DA0404",cex=.8)+
 
 In fact, clusters seem to be in areas with more green space, not less. We can see clusters of both suicide and heroin-related incidents near Boston Common downtown and near Joa Moakley Park in South Boston. It's plausible that drug use may occur more frequently in public spaces such as parks, but its hard to draw conclusions without examining other factors. I examined three other features of the urban environment that I thought may play a role in the observed clusters: , methadone clinics and homeless shelters. 
 
-*_MBTA train stations_: I hypothesized that T stations tend to be loacted near easily accessible social hubs in the city where a lot of people tend to congregate, so they may be useful as proxys for high risk areas.   
+*_MBTA train stations_: I hypothesized that T stations tend to be located near easily accessible social hubs in the city where a lot of people tend to congregate, so they may be useful as proxies for high risk areas.   
 
 *_Homeless Shelters_: Homelessness is strongly associated with mental health and substance misuse. Consequently, I thought that the presence of shelters may indicate areas with a high density of people experiencing homelessness, who may be at greater risk. 
 
 *_Methadone Clinics_: Methadone is one of the most common treatments for opiate addiction, so I hypothesized that the locations of clinics providing methadone treatment might represent areas with a high density of opiate users.
 
-I was able to obtain a dataset containing the locations of MBTA stations from the Analyze Boston website. I acquired the locations Boston methodone clinics listed on www.methadone.us/boston-methadone-clinics/ and homeless shelters listed on www.mahomeless.org/individual-shelters-in-greater-boston using google maps.  
+I was able to obtain a dataset containing the locations of MBTA stations from the Analyze Boston website. I acquired the locations Boston methadone clinics listed on www.methadone.us/boston-methadone-clinics/ and homeless shelters listed on www.mahomeless.org/individual-shelters-in-greater-boston using google maps.  
 
 ```{r fig.show='hold',fig.align='center',fig.height=6,fig.width=10}
 #read in MBTA data
@@ -268,9 +268,9 @@ I found these areas interesting because my initial rationale for this project wa
 
 ###Data and Analysis Part II: Neighborhood Sociodemographic Factors
 
-For the second part of this project, I wanted to see how neighborhood differences in sociodemographic factors corresponded to geospatial trends in incident frequency. I acquired sociodempgraphic data at the zip code level from the 2017 American Community Survey collected by the U.S Census Bureau, available at www.factfinder.census.gov. The census data provided the biggest challenge in terms of cleaning, wrangling and interpreting. There are many seperate datasets organized by topic available from the survey, each containing anywhere from three to several hundred variables. I chose seven datasets that seemed relevant and interesting. For my outcome of interest, I decided to tally the cummulative number of incidents in each zip code. 
+For the second part of this project, I wanted to see how neighborhood differences in sociodemographic factors corresponded to geospatial trends in incident frequency. I acquired sociodemographic data at the zip code level from the 2017 American Community Survey collected by the U.S Census Bureau, available at www.factfinder.census.gov. The census data provided the biggest challenge in terms of cleaning, wrangling and interpreting. There are many separate datasets organized by topic available from the survey, each containing anywhere from three to several hundred variables. I chose seven datasets that seemed relevant and interesting. For my outcome of interest, I decided to tally the cummulative number of incidents in each zip code. 
 
-Since there are only 30 zip codes in Boston for which I had data, this left me with far more poential variables to analyze than observations. Additionally, many census variables represent socioeconomic factors that are highly correlated (for example median household income and percent of households below poverty level), so I knew I had to consider multicollinearity in any models. My first inclination was to use some sort of automatic variable selection or dimension reduction process such as priniciple component analysis, but I decided against this. I realized that most of the variables in the datasets were actually stratefied versions of other variables, so for example, a dataset might contain unemployment, unemployment rate among males and females, and unemployment rate among males and females in each age category. I thought it would be difficult to interpret the results of a PCA including these related variables so I decided to choose a few of unstratefied variables of interest based on demographics and risk factors commonly mentioned in the suicide and opiate use research literature. I chose the following 13 variables for my initial exploration:
+Since there are only 30 zip codes in Boston for which I had data, this left me with far more potential variables to analyze than observations. Additionally, many census variables represent socioeconomic factors that are highly correlated (for example median household income and percent of households below poverty level), so I knew I had to consider multicollinearity in any models. My first inclination was to use some sort of automatic variable selection or dimension reduction process such as prinicipal component analysis, but I decided against this. I realized that most of the variables in the datasets were actually stratafied versions of other variables, so for example, a dataset might contain unemployment, unemployment rate among males and females, and unemployment rate among males and females in each age category. I thought it would be difficult to interpret the results of a PCA including these related variables so I decided to choose a few of unstratafied variables of interest based on demographics and risk factors commonly mentioned in the suicide and opiate use research literature. I chose the following 13 variables for my initial exploration:
 
 * Population: Estimated population
 
@@ -376,7 +376,7 @@ cenmerge %>% ggplot()+geom_point(aes(x=reorder(neighborhood,scount),y=scount))+g
 suicidecounts %>% ggplot()+geom_histogram(aes(x=scount),binwidth=4)+xlab("Number of Incidents")+ylab("Number of Zip Codes")+ggtitle("Suicide/Attempt Histogram")
 ```
 
-For both heroin sick assist incidents and suicide/attempt incidents, the distribution was right skewed with many zip codes with a low to moderate number of incidents and a few zip codes with a high number of incidents. Although zip codes do not correspond directly to neighborhoods, I was able to give each zip code a descriptive label based on the neighborhood it roughly corresponded to. The Roxbury had the most heroin sick assist incidents while the South Dorchester zip code had the most suicide/attempt incidents. 
+For both heroin sick assist incidents and suicide/attempt incidents, the distribution was right skewed with many zip codes with a low to moderate number of incidents and a few zip codes with a high number of incidents. Although zip codes do not correspond directly to neighborhoods, I was able to give each zip code a descriptive label based on the neighborhood it roughly corresponded to. The Roxbury zip code had the most heroin sick assist incidents while the South Dorchester zip code had the most suicide/attempt incidents. 
 
 Next, I looked at the univariate associations between census variables and zip code counts. Because the counts are not normally distributed, I used nonparametric Spearman correlations.
 
@@ -427,16 +427,17 @@ smod2 <- glm.nb(scount ~Female_Headed_HH+HispanicLatino+AfricanAmerican+Populati
 tidy(smod2)
 ```
 
-Unsurprisingly, population was the most significant predictor in both negative binomial models. Given that zip codes are different sizes and have different sized populations, I originally considered adjusting the counts to reflect per capita values rather than using population as a covariate. However, where people live does not necessarily reflect where they will spend time, overdose or attempt suicide. I decided that assessing whether more populated zip codes had more overdoses and suicides/attempts was an interesting question in itself and including population as a covariate in the multivariable analyses allowed me to explore this while still assessing the effects of other covariates adjusted for population.    
+Unsurprisingly, population was the most significant predictor in both negative binomial models. Given that zip codes are different sizes and have different sized populations, I originally considered adjusting the counts to reflect per capita values rather than using population as a covariate. However, where people live does not necessarily reflect where they will spend time, overdose or attempt suicide. I decided that assessing whether more populated zip codes had more overdoses and suicides/attempts was an interesting question in itself and including population as a covariate in the multivariable analyses allowed me to explore this while still assessing the effects of other covariates adjusted for population.   
+
 Higher percentage of high school graduates was the only other significant predictor in both models, indicating that areas with a low education level may be at particularly high risk. Further analysis at a finer scale would be necessary to explore why education may play a greater role than other related socioeconomic indicators such as income and poverty.
 
 ####Conclusions, Limitations and Areas for Further Study
 
-This project left me with more questions than answers and I think it's important to consider the limitations of the results. I would have liked to consult a member of the Boston Police department to get a better sense of what fraction of overdoses and suicide attempts are captured in police incident reports. For example, I'm unsure whether a police report is filed every time an ambulance is called or whether reports are filed only in certain types of situations. I suspect that police incident reports do not reflect the true incidence rate of heroin overdose and suicides/attempts in some locations. For example, Boston has many universities which have their own police, emergency medical services and health centers. Consequently, the Boston Police Department may not have records of incidents occuring on college campuses. 
+This project left me with more questions than answers and I think it's important to consider the limitations of the results. I would have liked to consult a member of the Boston Police department to get a better sense of what fraction of overdoses and suicide attempts are captured in police incident reports. For example, I'm unsure whether a police report is filed every time an ambulance is called or whether reports are filed only in certain types of situations. I suspect that police incident reports do not reflect the true incidence rate of heroin overdose and suicides/attempts in some locations. For example, Boston has many universities which have their own police, emergency medical services and health centers. Consequently, the Boston Police Department may not have records of incidents occurring on college campuses. 
 
 Another limitation of this data exploration was the small number of zip codes analyzed compared to the number of potential predictors. In the future, I would like to explore this topic using machine learning based methods which could assess interactions between factors such as age, gender and socioeconomic conditions. I briefly investigated the possibility of using a tree-based algorithm to predict count data, but time did not permit me to pursue that avenue. I would have also liked to use more google maps data in my analysis of urban features. For example, I think it would be interesting to use image processing to predict high risk locations based on the visual features of incident locations captured in google map image panoramas.  
 
-Despite these limitations, I do think that exploring the social and envorironmental determinants of incidents such as heroin overdose and suicide attempt using data science holds a lot of promise in finding new solutions to a pressing problem.  
+Despite these limitations, I do think that exploring the social and environmental determinants of incidents such as heroin overdose and suicide attempt using data science holds a lot of promise in finding new solutions to a pressing problem.  
 
 ####References
 CDC. 10 leading causes of death and Injury. Available [here](https://www.cdc.gov/injury/wisqars/LeadingCauses.html).
@@ -446,7 +447,7 @@ Franklin, J.C. et al. (2016) Risk Factors for Suicidal Thoughts and Behaviors: A
 Massachusetts Department of Public Health. Data Brief 2015: Suicides and Self-Inflicted Injuries in Massachusetts. Available [here](https://www.mass.gov/files/documents/2018/06/11/suicide-data-bulletin-winter-2018.pdf).
 
 Massachusetts Department of Public Health. Data Brief: Opioid-Related Overdose
-Deaths among Massachusetts Residents Current Opioid Statistics. Available [here](https://www.mass.gov/files/documents/2018/11/16/Opioid-related-Overdose-Deaths-among-MA-Residents-November-2018.pdf).
+Deaths among Massachusetts Residents. Available [here](https://www.mass.gov/files/documents/2018/11/16/Opioid-related-Overdose-Deaths-among-MA-Residents-November-2018.pdf).
 
 Zalkind, Susan. The Infrastructure of the Opoid Epidemic. Available [here](https://www.citylab.com/equity/2017/09/methadone-mile/539742/).
 
