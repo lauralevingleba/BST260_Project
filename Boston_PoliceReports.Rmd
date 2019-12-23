@@ -1,0 +1,470 @@
+---
+title: "Temporal and Geospatial Analysis of Heroin Overdose and Suicide Attempt Police Incident Reports in Boston"
+output: html_document
+knit: (function(input_file, encoding) {
+  out_dir <- 'docs';
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(rgdal)
+library(rgeos)
+library(maptools)
+library(plyr)
+library(sp)
+library(dbscan)
+library(readxl)
+library(MASS)
+library(broom)
+```
+
+####Overview and Motivation
+
+According to the CDC, the leading causes of death for people ages 15-34 are unintentional injury and suicide. The most frequent type of unintentional injury is drug overdoses, the majority of which involve opiates. Both opiate-related deaths and suicides have been increasing nation-wide over the past decade and Massachusetts has followed this trend. Over the years of 2005-2015 in Massachusetts:
+
+* The rate of suicides per 100,000 increased roughly **30%** from 7.3 to 9.3
+* The rate of opioid-related deaths increased roughly **180%** from 8.9 to 24.8
+
+Although the Massachusetts suicide rate remains lower than the national average, our opioid-related death rate is one of the highest in the country.
+
+And for every opioid-related death or completed suicide, there are far more non-fatal overdoses, suicide attempts, and self-inflicted injuries. 
+
+Every week in Massachusetts:
+
+* About **40** people die of an opioid-related overdose
+* About **600** people require inpatient hospital stays for opioid-related causes
+* About **750** people visit the ED for opioid-related causes
+
+and additionally
+
+* About **12** people die of completed suicide
+* About **75** people require inpatient hospital stays for self-inflicted injuries
+* About **140** people visit the ED for self-inflicted injuries
+
+
+
+####Initial Questions
+
+Given that it's difficult to predict ***who*** will overdose or attempt suicide, the goal of this case study is to explore ***when*** and ***where***. Suicide and overdose are highly context dependent and whether an at-risk person actually overdoses or attempts suicide is influenced by many environmental and sociocultural factors. Rather than determining which people are at high risk, we will use data on the locations and times of overdoses and suicides to see if particular features of the physical and social environment could be used to determine high-risk times and places. These findings could be used to inform policies regarding how to implement prevention strategies, where to place treatment facilities and how to design urban spaces to reduce risk.
+
+###Data and Analysis Part I: Time and Environment
+
+Crime incident reports dating from August 2015 to October 2018was acquired from Analyze Boston, the City of Boston's open data hub. The dataset includes the type, date, time and geographic location of incidents reported by the Boston Police Department. This project is based on the 1178 reports coded as "DRUGS - SICK ASSIST - HEROIN" and the 359 reports coded as "SUICIDE / SUICIDE ATTEMPT" in the dataset.
+
+```{r}
+#get incident reports, filter by incident type and remove out of range values
+dat <-read.csv("crime.csv",header=TRUE)
+
+#heroin sick assist
+heroin <- dat %>% filter(OFFENSE_DESCRIPTION=="DRUGS - SICK ASSIST - HEROIN")%>% subset(Lat>42)
+
+#suicide/attempt
+suicide <- dat %>% filter(OFFENSE_DESCRIPTION=="SUICIDE / SUICIDE ATTEMPT")%>% subset(Lat>42) 
+```
+
+#####Temporal Analysis
+
+First we will look at the overall trend in frequency per month over the time range of the dataset:
+
+```{r fig.show='hold',fig.align='center',fig.width=7, fig.height=4}
+months <- c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+
+heroin %>% mutate(MONTH=sprintf("%02d",MONTH))%>%unite(YM,YEAR,MONTH,sep="_") %>% group_by(YM) %>% tally %>% ggplot(aes(x=as.factor(YM),y=n))+ 
+  theme_classic()+geom_point()+geom_line(aes(group = 1))+ 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1,vjust = 0.5))+
+  scale_x_discrete(labels=c(paste(months[6:12],"15"),paste(months,"16"),paste(months,"17"),paste(months[1:10],"18")))+ 
+  xlab("Month and Year")+
+  ylab("Number of Incidents")+
+  ggtitle("Heroin Sick Assist Incident Frequency by Month")
+
+suicide %>% mutate(MONTH=sprintf("%02d",MONTH))%>%unite(YM,YEAR,MONTH,sep="_") %>% group_by(YM) %>% tally %>% ggplot(aes(x=as.factor(YM),y=n))+ 
+  theme_classic()+
+  geom_point()+
+  geom_line(aes(group = 1))+ 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1,vjust = 0.5))+
+  scale_x_discrete(labels=c(paste(months[6:12],"15"),paste(months,"16"),paste(months,"17"),paste(months[1:10],"18")))+xlab("Month and Year")+ylab("Number of Incidents")+
+  ggtitle("Suicide/Attempt Incident Frequency by Month")
+```  
+
+There seems to be a lot of month-to-month variability without a clear upward or downward trend. 
+
+Next, we can collapse the data across seasons to see if weather plays a role:
+
+```{r fig.show='hold',fig.width=4, fig.height=4}
+heroin %>% mutate(Season=cut(MONTH,breaks=4,labels=c("Winter","Spring","Summer","Fall"))) %>% group_by(Season) %>% tally %>% ggplot(aes(x=Season,y=n))+
+  theme_classic()+geom_bar(stat="identity")+ggtitle("Heroin Sick Assist Incidents by Season")
+
+suicide %>% mutate(Season=cut(MONTH,breaks=4,labels=c("Winter","Spring","Summer","Fall"))) %>% group_by(Season) %>% tally %>% ggplot(aes(x=Season,y=n))+
+  theme_classic()+geom_bar(stat="identity")+ggtitle("Suicide/Attempt Incidents by Season")
+```
+
+We might expect thaat winter would have the most incidents but summer actually had the highest number for both types of incident. This is particularly interesting because Boston's population is lower in the summer due to the lower number of students.
+
+To get a sense of trends on a more fine-grained time scale, we can examine frequencies by day of the week and hour:
+
+```{r fig.show='hold',fig.width=6, fig.align='center',fig.height=4}
+days <- c("Sunday","Saturday","Friday","Thursday","Wednesday","Tuesday","Monday")
+heroin$DAY_OF_WEEK <- factor(heroin$DAY_OF_WEEK, levels = days )
+heroin %>% group_by(HOUR,DAY_OF_WEEK) %>% tally %>% ggplot(aes(x=HOUR,y=DAY_OF_WEEK, fill=n))+
+  geom_tile()+
+  scale_x_continuous(breaks=(0:4*5),labels=c("12am","5am","10am","3pm","8pm"))+
+  scale_fill_gradient(low="#F7F4F4",high="#1A5276","Frequency") +
+  theme_minimal()+
+  theme(panel.grid = element_blank())+
+  ylab("Day of Week")+xlab("Hour")+
+  ggtitle("Heroin Sick Assist Incident Frequency")
+
+suicide$DAY_OF_WEEK <- factor(suicide$DAY_OF_WEEK, levels = days)   
+suicide %>% group_by(HOUR,DAY_OF_WEEK) %>% tally %>% ggplot(aes(x=HOUR,y=DAY_OF_WEEK, fill=n))+  
+  geom_tile()+
+  scale_x_continuous(breaks=(0:4*5),labels=c("12am","5am","10am","3pm","8pm"))+
+  scale_fill_gradient(low="#F7F4F4",high="#BF6663","Frequency") +
+  theme_minimal()+ theme(panel.grid = element_blank())+
+  ylab("Day of Week")+xlab("Hour")+
+  ggtitle("Suicide/Attempt Incident Frequency") 
+
+
+```
+
+Heroin sick assist incidents seem to occur most often in the evening from around 4pm - 8pm, with higher rates on weekdays than weekends. Rates are lowest in the early morning hours from 2am - 6am. Suicides/attempts show similar patterns, although there seems to be more variability in the data, possibly due to the lower overall rates leading to fewer data points.
+
+#####Spatial Analysis
+
+In addition to when incidents were likely to occur, we can explore where. As the crime dataset contains latitude and longitudes, we can use GIS data from the Analyze Boston data hub to see where in Boston incidents were occurring.
+
+The first step in this analysis is formatting the shape files to use with ggplot. 
+
+```{r }
+#get map of Boston with Zip codes
+boston <- readOGR("./ZIP_Codes/ZIP_Codes.shp")
+#convert to data frame format compatible with ggplot
+boston_fortify <- fortify(boston)
+#get spatial coordinates of incidents
+heroindots <- heroin %>% dplyr::select(Long,Lat) %>% na.omit
+suicidedots <-suicide %>% dplyr::select(Long,Lat) %>% na.omit
+```
+
+
+Here is a plot of the locations of incidents over a map of Boston's zip codes:
+
+```{r fig.show='hold',fig.align='center'}
+ggplot()+
+  geom_polygon(data=boston_fortify, aes(x=long, y=lat, group=group, fill=NA),color = "grey",fill=NA,size=0.5)+
+  geom_point(data=heroindots, aes(x=Long, y=Lat),pch=18)+
+  theme_classic()+
+  xlab("Longitude")+
+  ylab("Latitude")+
+  ggtitle("Location of Heroin Assist Incidents")
+
+ggplot()+
+  geom_polygon(data=boston_fortify, aes(x=long, y=lat, group=group, fill=NA),color = "grey",fill=NA,size=0.5)+
+  geom_point(data=suicidedots, aes(x=Long, y=Lat),pch=18)+
+  theme_classic()+
+  xlab("Longitude")+
+  ylab("Latitude")+
+  ggtitle("Location of Suicide/Attempt Incidents")
+```
+
+As expected, the locations aren't evenly distributed in space and some zip codes seem to have a lot more than others. It's possible that places with many incidents close together might represent high-risk areas that could be targeted for interventions, so we can try using a clustering algorithm to delineate these areas. 
+
+One useful clustering algorithm for this purpose is DBSCAN (Density-based spatial clustering of applications with noise). This algorithm detects groups of points that are close to each other while marking the points in low density areas as noise points.
+
+The algorithm has two parameters that can be adjusted: the ***eps***, which represents the minimum distance between two points required for them to be considered neighbors and the ***minPts***, which represents the minimum number of points to form a high-density region. These parameters must be adjusted a bit to find values that resulted in cluster sizes that were useful for further analysis (for example, we do not want 200 tiny clusters or 2 huge clusters).  
+
+*Side note: when clustering geospatial points, you're actually supposed to use a distance metric that takes account of the curvature of the earth, such as haversine distances, but since Boston is very small compared to the size of the entire earth, we can approximate the world as flat for this project.
+
+Here are the results of the clustering algorithm:
+
+```{r fig.show='hold',fig.align='center'}
+#run clustering algorithm and merge clusters to location data
+hclust <- dbscan(x=heroindots,eps=.0025,minPts=11)
+sclust <- dbscan(x=suicidedots,eps=.0035,minPts=5)
+hcluster <- as.data.frame(hclust[[1]])
+scluster <- as.data.frame(sclust[[1]])
+names(hcluster) <-c("hcluster")
+names(scluster) <-c("scluster")
+heroindots2 <- bind_cols(heroindots,hcluster) %>% filter(hcluster > 0)
+suicidedots2 <- bind_cols(suicidedots,scluster) %>% filter(scluster > 0)
+
+#color blind friendly  colors
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7","#000000")
+
+ggplot()+ geom_polygon(data=boston_fortify, aes(x=long, y=lat, group=group, fill=NA),color ="grey", fill=NA,size=0.5)+ geom_point(data=heroindots2,aes(x=Long,y=Lat,color=as.factor(hcluster)),pch=18)+
+scale_color_manual(values=c(cbPalette,cbPalette),guide=FALSE)+theme_classic()+xlab("Longitude")+ylab("Latitude")+ggtitle("DBSCAN Clusters of Heroin Assist Incidents")                                         
+
+ggplot()+ geom_polygon(data=boston_fortify, aes(x=long, y=lat, group=group, fill=NA),color ="grey",fill=NA,size=0.5)+
+geom_point(data=suicidedots2,aes(x=Long,y=Lat,color=as.factor(scluster)),pch=18)+
+  scale_color_manual(values=c(cbPalette,cbPalette),guide=FALSE)+theme_classic()+xlab("Longitude")+ylab("Latitude")+ggtitle("DBSCAN Clusters of Suicide/Attempt Incidents")
+```
+
+To see what may be influencing these clusters, we can add some more features to the map. As a first exploration, lets examine trees and open green spaces. The positive role of green space in reducing negative health outcomes is an ongoing area of research. The Analyze Boston data hub contains a dataset with the GPS coordinates of all the trees in Boston and a shapefile of Boston's open spaces which we can add to our map. To make the map more interpretable, we can use ggplot's stat_density2d function to perform kernal density estimation on the tree points and plotted the tree density as color intensity rather than plotting the tree points themselves.
+
+Here are the results:
+```{r fig.show='hold',fig.align='center'}
+#get tree data
+trees <- read.csv("Trees.csv")
+treedots <- trees %>% dplyr::rename(Long=X,Lat=Y) %>% dplyr::select(Long,Lat)
+#get open space map
+openspace <- readOGR("./Open_Space/Open_Space.shp")
+#remove area outside zip code map
+openspace <- gIntersection(openspace, boston, byid=T, drop_lower_td=T)
+#format for ggplot
+os_fortify=fortify(openspace)
+
+
+ggplot()+ 
+  geom_polygon(data=boston_fortify, aes(x=long, y=lat, group=group, fill=NA),color ="grey",fill=NA,size=0.5)+
+  stat_density2d(data=treedots, show.legend=F, aes(x=Long, y=Lat, fill=..level.., alpha=..level..),    geom="polygon", size=2, bins=20)+scale_fill_gradient(low="lightgrey", high="#3F681C", name="Distribution")+ 
+ geom_polygon(data=os_fortify, aes(x=long, y=lat, group=group, fill=NA), color = "#3F681C",  fill="#3F681C",alpha=.5,size=0.5)+
+ geom_point(data=heroindots2,aes(x=Long,y=Lat),color="#DA0404",cex=.8)+
+  theme_classic()+
+  xlab("Longitude")+
+  ylab("Latitude")+
+  ggtitle("High Density Heroin Incident Areas and Green Space")
+
+
+ggplot()+ 
+  geom_polygon(data=boston_fortify, aes(x=long, y=lat, group=group, fill=NA),color ="grey",fill=NA,size=0.5)+ stat_density2d(data=treedots, show.legend=F, aes(x=Long, y=Lat, fill=..level.., alpha=..level..),geom="polygon", size=2, bins=20)+scale_fill_gradient(low="lightgrey", high="#3F681C", name="Distribution")+ 
+  geom_polygon(data=os_fortify, aes(x=long, y=lat, group=group, fill=NA),color = "#3F681C", fill="#3F681C",alpha=.5,size=0.5)+
+geom_point(data=suicidedots2,aes(x=Long,y=Lat),color="#DA0404",cex=.8)+
+             theme_classic()+xlab("Longitude")+ylab("Latitude")+
+             ggtitle("High Density Suicide/Attempt Incident Areas and Green Space")
+
+```
+
+In fact, clusters seem to be in areas with more green space, not less. We can see clusters of both suicide and heroin-related incidents near Boston Common downtown and near Joe Moakley Park in South Boston. It's plausible that drug use may occur more frequently in public spaces such as parks, but its hard to draw conclusions without examining other factors. We can examine three other features of the urban environment that may play a role in the observed clusters: T stations methadone clinics and homeless shelters. 
+
+*_MBTA train stations_: It's possible that T stations tend to be located near easily accessible social hubs in the city where a lot of people tend to congregate, so they may be useful as proxies for high risk areas.   
+
+*_Homeless Shelters_: Homelessness is strongly associated with mental health and substance misuse. Consequently, the presence of shelters may indicate areas with a high density of people experiencing homelessness, who may be at greater risk. 
+
+*_Methadone Clinics_: Methadone is one of the most common treatments for opiate addiction, so it could be that the locations of clinics providing methadone treatment might represent areas with a high density of opiate users.
+
+We can obtain a dataset containing the locations of MBTA stations from the Analyze Boston website. We can find the locations Boston methadone clinics listed on www.methadone.us/boston-methadone-clinics/ and homeless shelters listed on www.mahomeless.org/individual-shelters-in-greater-boston using google maps.  
+
+```{r fig.show='hold',fig.align='center',fig.height=6,fig.width=10}
+#read in MBTA data
+mbta <- readOGR("./mbta_rapid_transit/MBTA_NODE.shp")
+mbta2 <- spTransform(mbta, CRS(proj4string(boston)))
+#remove stops outside Boston limits
+mbta3 <- over(mbta2,boston)
+mbta4 <- bind_cols(as.data.frame(mbta3),as.data.frame(mbta2),as.data.frame(mbta@data))
+#remove silver line - this line is really more of a bus than a train
+mbta5 <- as.data.frame(mbta4[!is.na(mbta4$ZIP5),]) %>% dplyr::filter(LINE != "SILVER")
+#read in shelter and clinic data
+clinshelt <- read.csv("clinic_shelter_locations.csv")
+
+hplot <- ggplot()+ geom_polygon(data=boston_fortify, aes(x=long, y=lat, group=group, fill=NA),color ="grey",fill=NA,size=0.5)+
+  stat_density2d(data=treedots, show.legend=F, aes(x=Long, y=Lat, fill=..level.., alpha=..level..),    geom="polygon", size=2, bins=20)+scale_fill_gradient(low="lightgrey", high="#3F681C", name="Distribution")+ 
+ geom_polygon(data=os_fortify, aes(x=long, y=lat, group=group, fill=NA), color = "#3F681C",  fill="#3F681C",alpha=.5,size=0.5)+
+ geom_point(data=heroindots2,aes(x=Long,y=Lat),color="#DA0404",cex=.8)+theme_classic()+
+  xlab("Longitude")+ylab("Latitude")+ggtitle("Heroin Assist Incidents and Urban Features")+  geom_point(data=mbta5,aes(x= coords.x1, y= coords.x2),color="black",pch=1,cex=2)+
+  geom_point(data=mbta5,aes(x= coords.x1, y= coords.x2),color="white")+
+  geom_point(data=mbta5,aes(x= coords.x1, y= coords.x2),color="black",pch="T")+
+  geom_point(data=clinshelt,aes(x=Long,y=Lat,color=Type),pch=15)+
+  scale_color_manual(name="",values=c("#85C1E9","#FADC63"))+theme_classic()
+hplot
+
+splot <- ggplot()+ geom_polygon(data=boston_fortify, aes(x=long, y=lat, group=group, fill=NA),color ="grey",fill=NA,size=0.5)+
+  stat_density2d(data=treedots, show.legend=F, aes(x=Long, y=Lat, fill=..level.., alpha=..level..),geom="polygon", size=2, bins=20)+scale_fill_gradient(low="lightgrey", high="#3F681C", name="Distribution")+geom_polygon(data=os_fortify, aes(x=long, y=lat, group=group, fill=NA), color = "#3F681C", fill="#3F681C",alpha=.5,size=0.5)+ geom_point(data=suicidedots2,aes(x=Long,y=Lat),color="#DA0404",cex=.8)+
+ theme(legend.position="none")+xlab("Longitude")+ylab("Latitude")+ggtitle("Suicide/Attempt Incidents and Urban Features")+geom_point(data=mbta5,aes(x= coords.x1, y= coords.x2),color="black",pch=1,cex=2)+
+  geom_point(data=mbta5,aes(x= coords.x1, y= coords.x2),color="white")+
+  geom_point(data=mbta5,aes(x= coords.x1, y= coords.x2),color="black",pch="T")+
+   geom_point(data=clinshelt,aes(x=Long,y=Lat,color=Type),pch=15)+
+  scale_color_manual(name="",values=c("#85C1E9","#FADC63"))+theme_classic()
+splot
+```
+
+Based on these maps, it does seem that although not every cluster is near a clinic, shelter or T stop, there are some areas where the clusters clearly coincide with one or more of these features. The heroin incident clusters in the Southeastern part of the map seem to follow the path of the T stations in this area (this is the Ashmont branch of the Red line) and the Western most heroin incident cluster is located in close proximity to Jackson square on the Orange line. Two other areas that are particularly interesting were the Downtown Crossing area directly West of the Boston Commons and the area with several shelters and clinics in close proximity, which upon investigation turned out to be the stretch of Massachusetts Avenue near Boston Medical Center commonly referred to as "Methadone Mile."
+
+We may have thought initially that detecting clusters of high frequency incidents could allow for greater provision of services and supports in these areas, which would reduce overall frequency of incidents. In fact, the reality seems to be that areas where services and supports are provided attract people with substance abuse and mental health problems, increasing the clustering of incidents in these areas. There is considerable public debate over the pros and cons of clustering many services in close proximity in areas such as "Methadone Mile." On the one hand, it can attract drug dealers looking for clients and cause friction with the surrounding community, but on the other hand, it allows for rapid care delivery, which can be the difference between life and death in situations such as overdose and suicide attempt. So in fact, incidents that happen in clusters of high density near locations where services are provided may have better outcomes and be at lower risk than areas with isolated, sporadic incidents. 
+
+###Data and Analysis Part II: Neighborhood Sociodemographic Factors
+
+For the second part of this project, we can examine how neighborhood differences in sociodemographic factors corresponded to geospatial trends in incident frequency. We can acquire sociodemographic data at the zip code level from the 2017 American Community Survey collected by the U.S Census Bureau, available at www.factfinder.census.gov. There are many separate datasets organized by topic available from the survey, each containing anywhere from three to several hundred variables. We chose seven datasets that seemed relevant and interesting. For the outcome of interest, we can tally the cummulative number of incidents in each zip code. 
+
+Since there are only 30 zip codes in Boston for which we have data, this leaves us with far more potential variables to analyze than observations. Additionally, many census variables represent socioeconomic factors that are highly correlated (for example median household income and percent of households below poverty level), so we must consider multicollinearity in any models. Most of the variables in the datasets were actually stratafied versions of other variables, so for example, a dataset might contain unemployment, unemployment rate among males and females, and unemployment rate among males and females in each age category. We can choose a few of unstratafied variables of interest based on demographics and risk factors commonly mentioned in the suicide and opiate use research literature. We chose the following 13 variables for initial exploration:
+
+* Population: Estimated population
+
+* Male_to_Female: Sex ratio (males per 100 females)
+
+* Under_18: Percent under 18 years of age
+
+* Over_65: Percent 65 years of age and older 
+
+* HispanicLatino: Percent of population identifying as Hispanic or Latino (of any race)
+
+* AfricanAmerican: Percent of population identifying as black or African American only
+
+* HighSchoolGrad: Percent high school graduate or over
+
+* Median_Income: Median family income (2017 inflation-adjusted dollars)
+
+* Below_Poverty: Percentage of families and people whose income in the past 12 months is below the poverty level
+
+* Unemployment: Unemployment rate in population 16 years and over
+
+* Female_Headed_HH: Percentage of total households with one or more people under 18 years of age and a female householder with no husband present 
+
+* Renters: Percent of occupied housing units that are renter occupuied
+
+* Vacant_Housing: Percent of total housing units that are vacant
+
+* Rent_to_Income: GRAPI (Gross Rent as a Percentage of Household Income) > 35%
+
+* USCitizens: Percentage of adults over 18 that are citizens of the United States
+
+```{r}
+#count suicide incidents per zip code using spatial overlay function
+sdots_sp <-SpatialPoints(coords=suicidedots)
+proj4string(sdots_sp) <- proj4string(boston)
+scount_geo <- over(x=sdots_sp,y=boston)
+suicidecounts <- as.data.frame(table(scount_geo$ZIP5))
+suicidecounts <- suicidecounts %>% dplyr::rename(zip5=Var1,scount=Freq)
+
+#count heroin incidents per zip code using spatial overlay function
+hdots_sp <-SpatialPoints(coords=heroindots)
+proj4string(hdots_sp) <- proj4string(boston)
+hcount_geo <- over(x=hdots_sp,y=boston)
+heroincounts <- as.data.frame(table(hcount_geo$ZIP5)) 
+heroincounts <- heroincounts %>% dplyr::rename(zip5=Var1,hcount=Freq)
+
+#read in census datasets
+setwd("./census/")
+temp = list.files(pattern="*.csv")
+cenlist = lapply(temp, read.csv)
+
+#Create analytic variables and select variables of interest
+cenlist[[1]] <- cenlist[[1]] %>% dplyr::rename(Population = HD01_VD01) %>% dplyr::select(GEO.id2,Population)
+
+#Percentage of Female householder, no husband present/Total Households
+cenlist[[2]]$Female_Headed_HH <- cenlist[[2]]$HD01_VD07/cenlist[[2]]$HD01_VD01
+cenlist[[2]] <-cenlist[[2]] %>% dplyr::select(GEO.id2,Female_Headed_HH)
+
+cenlist[[3]] <- cenlist[[3]] %>% dplyr::rename(Median_Income=HC01_VC114,Below_Poverty=HC03_VC161)%>% 
+  dplyr::select(GEO.id2,Median_Income,Below_Poverty)
+
+cenlist[[4]] <- cenlist[[4]] %>% dplyr::rename(Renters = HC03_VC66,Vacant_Housing = HC03_VC05, Rent_to_Income = HC03_VC204) %>%
+  dplyr::select(GEO.id2,Renters,Vacant_Housing,Rent_to_Income)
+
+#percent of people over 18 who are citizens=(total citizens over 18)/(total people-people under 18))
+cenlist[[5]]$UScitizens <- cenlist[[5]]$HC01_VC113/(cenlist[[5]]$HC01_VC03-cenlist[[5]]$HC01_VC27)
+cenlist[[5]] <- cenlist[[5]] %>% 
+  dplyr::rename(Male_to_Female = HC01_VC06,Under_18=HC03_VC27,Over_65=HC03_VC32,AfricanAmerican=HC03_VC55,
+         HispanicLatino=HC03_VC93) %>% dplyr::select(GEO.id2,Under_18,Over_65,Male_to_Female,AfricanAmerican,HispanicLatino,UScitizens)
+                                                                                                            
+cenlist[[6]]<- cenlist[[6]]%>% dplyr::rename(HighSchoolGrad=HC02_EST_VC17) %>% dplyr::select(GEO.id2,HighSchoolGrad)
+
+cenlist[[7]]<- cenlist[[7]]%>% dplyr::rename(Unemployment=HC04_EST_VC01) %>% dplyr::select(GEO.id2,Unemployment)
+
+#merge census datasets and keep subset of variables of interest
+census <-  lapply(cenlist,dplyr::rename,zip5=ends_with("GEO.id2")) %>% 
+  lapply(mutate,zip5=paste("0",as.factor(zip5),sep="")) %>% 
+  purrr::reduce(full_join,by="zip5") 
+
+#merge in counts and take out extra zip code  
+setwd("../")
+neighborhoods <- read.csv('ziplist.csv') %>% mutate(zip5=paste("0",as.factor(zip5),sep=""))
+cenmerge <- census %>% full_join(.,heroincounts,by="zip5") %>% full_join(.,suicidecounts,by="zip5") %>% 
+  filter(!zip5 %in% c("02203","02459","02151","02152","02186","02021","02026")) %>% full_join(.,neighborhoods,by="zip5")
+
+cenmerge$Below_Poverty <- as.numeric(as.character(cenmerge$Below_Poverty))
+cenmerge$Unemployment <- as.numeric(as.character(cenmerge$Unemployment))
+cenmerge$Male_to_Female <- as.numeric(as.character(cenmerge$Male_to_Female))
+cenmerge$Median_Income <- as.numeric(as.character(gsub("[+,]","",cenmerge$Median_Income)))
+```
+
+
+We can examine the distribution of incident counts per zip code.
+
+```{r fig.height=5,fig.width=5,fig.show='hold',fig.align='center'}
+cenmerge %>% ggplot()+geom_point(aes(x=reorder(neighborhood,hcount),y=hcount))+geom_segment(aes(x=reorder(neighborhood,hcount),y=hcount,xend=neighborhood),yend=0)+ 
+  xlab("Neighborhood")+ylab("Incident Count")+ggtitle("Heroin Sick Assist Incidents")+
+  coord_flip()
+cenmerge %>% ggplot()+geom_histogram(aes(x=hcount),binwidth=10)+xlab("Number of Incidents")+ylab("Number of Zip Codes")+ggtitle("Heroin Sick Assist Histogram")
+
+cenmerge %>% ggplot()+geom_point(aes(x=reorder(neighborhood,scount),y=scount))+geom_segment(aes(x=reorder(neighborhood,scount),y=scount,xend=neighborhood),yend=0) + xlab("Neighborhood")+ylab("Incident Count")+ggtitle("Suicide/Attempt Incidents")+
+  coord_flip()
+suicidecounts %>% ggplot()+geom_histogram(aes(x=scount),binwidth=4)+xlab("Number of Incidents")+ylab("Number of Zip Codes")+ggtitle("Suicide/Attempt Histogram")
+```
+
+For both heroin sick assist incidents and suicide/attempt incidents, the distribution is right skewed with many zip codes with a low to moderate number of incidents and a few zip codes with a high number of incidents. Although zip codes do not correspond directly to neighborhoods, we can give each zip code a descriptive label based on the neighborhood it roughly corresponds to. The Roxbury zip code had the most heroin sick assist incidents while the South Dorchester zip code had the most suicide/attempt incidents. 
+
+Next, we can look at the univariate associations between census variables and zip code counts. Because the counts are not normally distributed, we use nonparametric Spearman correlations.
+
+```{r fig.show='hold',fig.align='center'}
+scors <- cor(cenmerge$scount,dplyr::select(cenmerge,-hcount,-scount,-zip5,-neighborhood),use="complete.obs",method="spearman")
+hcors <- cor(cenmerge$hcount,dplyr::select(cenmerge,-hcount,-scount,-zip5,-neighborhood),use="complete.obs",method="spearman")
+
+hcordf <- gather(as.data.frame(hcors))
+hcordf %>% arrange(desc(value)) %>% ggplot(aes(x=reorder(key,value),y=value))+geom_bar(stat="identity") +
+  coord_flip()+ggtitle("Heroin Sick Assist Incident Reports")+xlab("Sociodemographic Factor")+ylab("Spearman Correlation")
+
+scordf <- gather(as.data.frame(scors))
+scordf %>% arrange(desc(value)) %>% ggplot(aes(x=reorder(key,value),y=value))+geom_bar(stat="identity") +
+  coord_flip()+ggtitle("Suicide/Attempt Incident Reports")+xlab("Sociodemographic Factor")+ylab("Spearman Correlation")
+```
+
+Patterns were similar for heroin incidents and suicide/attempt incidents. Low high school graduation rates, lower median income, higher percentages of minorities, more children, and higher percentage of single-mom households showed strong associations with incident counts for both types of incident. This is unsurprising, as these characteristics are risk factors for many negative health outcomes and inequities in the healthcare system may make it harder for residents of these zip codes to access the care which could prevent the acute incidents which lead to 911 calls and police incident reports.
+
+As a final analysis, we can conduct a Poisson regression for each incident type with incident count as the outcome in order to explore which covariates best predicted the number of incidents per zip code in a multivariable context. As we have only a limited number of observations and do not want to include too many parameters, we only include a few variables which showed strong associations in the univariate analyses or which are particularly important. We then checked for overdispersion by examining the ratio of the model deviance and chi square statistic to the degrees of freedom in order to make sure that we are not breaking the assumptions of the Poisson model.
+
+```{r}
+#poisson heroin model
+hmod1 <- glm(hcount ~ Female_Headed_HH+HispanicLatino+Population+HighSchoolGrad+Under_18+AfricanAmerican+Median_Income, data=cenmerge, family=poisson())
+
+#check overdispersion
+deviance(hmod1)/hmod1$df.residual
+pearson.stat2 <- sum((cenmerge$hcount - fitted(hmod1))^2/fitted(hmod1))
+pearson.stat2/hmod1$df.residual
+
+#poisson suicide model
+smod1 <- glm(scount ~ Female_Headed_HH+HispanicLatino+AfricanAmerican+Population+HighSchoolGrad+Under_18+Median_Income, data=cenmerge, family=poisson())
+
+#check overdispersion
+deviance(smod1)/smod1$df.residual
+pearson.stat1 <- sum((cenmerge$scount - fitted(smod1))^2/fitted(smod1))
+pearson.stat1/smod1$df.residual
+```
+
+The ratios of the model deviances and chi square statistics to the degrees of freedom were above 1 for both models, indicating overdispersion, so we can try a negative binomial models instead, which can account for overdispersion.
+
+```{r}
+#negative binomial model for heroin counts
+hmod2 <- glm.nb(hcount ~Female_Headed_HH+HispanicLatino+AfricanAmerican+Population+HighSchoolGrad+Under_18+Median_Income, data=cenmerge, link=log)
+tidy(hmod2)
+
+#negative binomial model for suicide counts
+smod2 <- glm.nb(scount ~Female_Headed_HH+HispanicLatino+AfricanAmerican+Population+HighSchoolGrad+Under_18+Median_Income, data=cenmerge, link=log)
+tidy(smod2)
+```
+
+Unsurprisingly, population was the most significant predictor in both negative binomial models. Given that zip codes are different sizes and have different sized populations, we could have also considered adjusting the counts to reflect per capita values rather than using population as a covariate. However, where people live does not necessarily reflect where they will spend time, overdose or attempt suicide. I decided that assessing whether more populated zip codes had more overdoses and suicides/attempts was an interesting question in itself and including population as a covariate in the multivariable analyses allowed me to explore this while still assessing the effects of other covariates adjusted for population.   
+
+Higher percentage of high school graduates was the only other significant predictor in both models, indicating that areas with a low education level may be at particularly high risk. Further analysis at a finer scale would be necessary to explore why education may play a greater role than other related socioeconomic indicators such as income and poverty.
+
+####Conclusions, Limitations and Areas for Further Study
+
+This project leaves us with more questions than answers and it's important to consider the limitations of the results. We would have liked to consult a member of the Boston Police department to get a better sense of what fraction of overdoses and suicide attempts are captured in police incident reports. For example, we're unsure whether a police report is filed every time an ambulance is called or whether reports are filed only in certain types of situations. It could be that police incident reports do not reflect the true incidence rate of heroin overdose and suicides/attempts in some locations. For example, Boston has many universities which have their own police, emergency medical services and health centers. Consequently, the Boston Police Department may not have records of incidents occurring on college campuses. 
+
+Another limitation of this data exploration was the small number of zip codes analyzed compared to the number of potential predictors. In the future, we could also explore this topic using machine learning based methods which could assess interactions between factors such as age, gender and socioeconomic conditions.   
+
+Despite these limitations, exploring the social and environmental determinants of incidents such as heroin overdose and suicide attempt using data science holds a lot of promise in finding new solutions to a pressing problem.  
+
+####References
+CDC. 10 leading causes of death and Injury. Available [here](https://www.cdc.gov/injury/wisqars/LeadingCauses.html).
+
+Franklin, J.C. et al. (2016) Risk Factors for Suicidal Thoughts and Behaviors: A Meta-Analysis of 50 Years of Research. *Psychological Bulletin.*143,2,187-232.
+
+Massachusetts Department of Public Health. Data Brief 2015: Suicides and Self-Inflicted Injuries in Massachusetts. Available [here](https://www.mass.gov/files/documents/2018/06/11/suicide-data-bulletin-winter-2018.pdf).
+
+Massachusetts Department of Public Health. Data Brief: Opioid-Related Overdose
+Deaths among Massachusetts Residents. Available [here](https://www.mass.gov/files/documents/2018/11/16/Opioid-related-Overdose-Deaths-among-MA-Residents-November-2018.pdf).
+
+Zalkind, Susan. The Infrastructure of the Opoid Epidemic. Available [here](https://www.citylab.com/equity/2017/09/methadone-mile/539742/).
+
